@@ -1,4 +1,5 @@
 const state = {
+  auth: null,
   charts: {
     revenue: null,
     mrr: null,
@@ -13,8 +14,9 @@ const state = {
   },
 };
 
+const AUTH_STORAGE_KEY = "reforma_fitssey_auth";
+
 const FITSSEY_CONFIG = {
-  apiKey: "live_c7b690956aa5cc3efcbe586e4a9f131f",
   baseUrlTemplate: "https://app.fitssey.com/{uuid}/api/v4/public",
   defaultStartDate: "2025-10-01",
   defaultStudioUuid: "Reformapilates",
@@ -65,14 +67,89 @@ const chartHelpContent = {
 
 document.addEventListener("DOMContentLoaded", () => {
   initHelpPopover();
-
-  loadDefaultData();
+  initAuth();
 });
 
+function initAuth() {
+  const authForm = document.getElementById("authForm");
+  const authModeInput = document.getElementById("authModeInput");
+  const studioUuidInput = document.getElementById("studioUuidInput");
+  const usernameInput = document.getElementById("usernameInput");
+  const usernameField = document.getElementById("usernameField");
+  const secretLabel = document.getElementById("secretLabel");
+  const apiKeyInput = document.getElementById("apiKeyInput");
+  const logoutBtn = document.getElementById("logoutBtn");
+
+  const queryUuid = new URLSearchParams(window.location.search).get("studioUuid");
+  const storedAuth = getStoredAuth();
+
+  authModeInput.value = storedAuth?.method || "apiKey";
+  studioUuidInput.value = (queryUuid || storedAuth?.studioUuid || FITSSEY_CONFIG.defaultStudioUuid || "").trim();
+  usernameInput.value = storedAuth?.username || "";
+  apiKeyInput.value = storedAuth?.secret || storedAuth?.apiKey || "";
+
+  const updateModeUi = () => {
+    const isBasic = authModeInput.value === "basic";
+    usernameField.classList.toggle("hidden", !isBasic);
+    secretLabel.textContent = isBasic ? "Hasło" : "API Key (Bearer)";
+    apiKeyInput.placeholder = isBasic ? "hasło" : "live_...";
+  };
+  updateModeUi();
+  authModeInput.addEventListener("change", updateModeUi);
+
+  if ((storedAuth?.secret || storedAuth?.apiKey) && studioUuidInput.value) {
+    state.auth = {
+      studioUuid: studioUuidInput.value,
+      method: storedAuth?.method || "apiKey",
+      username: storedAuth?.username || "",
+      secret: storedAuth?.secret || storedAuth?.apiKey || "",
+    };
+    loadDefaultData();
+  } else {
+    setStatus("Uzupełnij Studio UUID i API Key, aby pobrać dane z Fitssey API.", "info");
+  }
+
+  authForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const method = authModeInput.value;
+    const studioUuid = studioUuidInput.value.trim();
+    const username = usernameInput.value.trim();
+    const secret = apiKeyInput.value.trim();
+
+    if (!studioUuid || !secret) {
+      setStatus("Podaj Studio UUID i dane logowania.", "error");
+      return;
+    }
+    if (method === "basic" && !username) {
+      setStatus("Podaj użytkownika dla logowania hasłem.", "error");
+      return;
+    }
+
+    state.auth = { studioUuid, method, username, secret };
+    saveStoredAuth(state.auth);
+    loadDefaultData();
+  });
+
+  logoutBtn.addEventListener("click", () => {
+    clearStoredAuth();
+    state.auth = null;
+    apiKeyInput.value = "";
+    destroyAllCharts();
+    document.getElementById("dashboard").classList.add("hidden");
+    setStatus("Wylogowano. Wprowadź nowy API Key, aby pobrać dane.", "info");
+  });
+}
+
 async function loadDefaultData() {
+  if (!state.auth?.secret || !state.auth?.studioUuid) {
+    setStatus("Brak autoryzacji API. Uzupełnij dane logowania powyżej.", "error");
+    return;
+  }
+
   try {
     setStatus("Ładowanie sprzedaży z API Fitssey...", "info");
-    const apiRecords = await fetchSalesRecordsFromApi();
+    const apiRecords = await fetchSalesRecordsFromApi(state.auth);
     if (!apiRecords.length) {
       throw new Error("API zwróciło pustą listę sprzedaży.");
     }
@@ -84,25 +161,64 @@ async function loadDefaultData() {
   }
 }
 
-function resolveFitsseyUuid() {
-  if (window.FITSSEY_STUDIO_UUID) return String(window.FITSSEY_STUDIO_UUID).trim();
-  const paramUuid = new URLSearchParams(window.location.search).get("studioUuid");
-  if (paramUuid) return paramUuid.trim();
-  return FITSSEY_CONFIG.defaultStudioUuid;
+function getStoredAuth() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.studioUuid) return null;
+    const secret = parsed?.secret || parsed?.apiKey;
+    if (!secret) return null;
+    return {
+      method: String(parsed.method || "apiKey"),
+      username: String(parsed.username || ""),
+      secret: String(secret),
+      studioUuid: String(parsed.studioUuid),
+    };
+  } catch {
+    return null;
+  }
 }
 
-async function fetchSalesRecordsFromApi() {
-  const studioUuid = resolveFitsseyUuid();
+function saveStoredAuth(auth) {
+  localStorage.setItem(
+    AUTH_STORAGE_KEY,
+    JSON.stringify({
+      studioUuid: auth.studioUuid,
+      method: auth.method || "apiKey",
+      username: auth.username || "",
+      secret: auth.secret,
+    })
+  );
+}
+
+function clearStoredAuth() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
+
+function destroyAllCharts() {
+  for (const chartKey of Object.keys(state.charts)) {
+    if (state.charts[chartKey]) {
+      state.charts[chartKey].destroy();
+      state.charts[chartKey] = null;
+    }
+  }
+}
+
+async function fetchSalesRecordsFromApi(auth) {
+  const studioUuid = auth?.studioUuid?.trim();
+  const secret = auth?.secret?.trim();
+  const method = auth?.method || "apiKey";
   if (!studioUuid) {
-    throw new Error("Brak studio UUID (użyj ?studioUuid=... lub window.FITSSEY_STUDIO_UUID).");
+    throw new Error("Brak Studio UUID.");
+  }
+  if (!secret) {
+    throw new Error("Brak danych autoryzacji.");
   }
 
   const endDate = new Date().toISOString().slice(0, 10);
   const baseUrl = FITSSEY_CONFIG.baseUrlTemplate.replace("{uuid}", encodeURIComponent(studioUuid));
-  const headers = {
-    Authorization: `Bearer ${FITSSEY_CONFIG.apiKey}`,
-    Accept: "application/json",
-  };
+  const headers = buildAuthHeaders(method, auth?.username || "", secret);
 
   const count = 200;
   const firstPage = await fetchSalesPage(baseUrl, FITSSEY_CONFIG.defaultStartDate, endDate, 1, count, headers);
@@ -127,6 +243,18 @@ async function fetchSalesRecordsFromApi() {
     .map(mapApiSalesRowToRecord)
     .filter((record) => record && Number.isFinite(record.amount) && record.amount >= 0)
     .sort((a, b) => a.date - b.date);
+}
+
+function buildAuthHeaders(method, username, secret) {
+  const headers = { Accept: "application/json" };
+  if (method === "basic") {
+    const token = btoa(unescape(encodeURIComponent(`${username}:${secret}`)));
+    headers.Authorization = `Basic ${token}`;
+    return headers;
+  }
+
+  headers.Authorization = `Bearer ${secret}`;
+  return headers;
 }
 
 async function fetchSalesPage(baseUrl, startDate, endDate, page, count, headers) {
