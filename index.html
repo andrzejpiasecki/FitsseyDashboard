@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Sprzedażowy</title>
+  <meta name="description" content="Interaktywny dashboard sprzedażowy i churn oparty o API Fitssey">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script defer src="js/app.js"></script>
+</head>
+<body>
+  <div class="bg-shape bg-shape-a" aria-hidden="true"></div>
+  <div class="bg-shape bg-shape-b" aria-hidden="true"></div>
+
+  <main class="layout">
+    <section class="hero card">
+      <div>
+        <p class="eyebrow">Reforma Dashboard</p>
+        <h1>Interaktywny dashboard sprzedażowy</h1>
+        <p class="muted">Dane sprzedażowe są ładowane automatycznie z API Fitssey od 2025-10-01 i odświeżane przy każdym otwarciu dashboardu.</p>
+      </div>
+    </section>
+
+    <section id="status" class="status hidden" role="status" aria-live="polite"></section>
+
+    <section id="dashboard" class="hidden">
+      <div class="charts-grid charts-grid-wide">
+        <article class="card chart-card span-2">
+          <div class="chart-head">
+            <h2>Przychód miesięczny</h2>
+            <button class="help-btn" type="button" data-help-key="revenue">?</button>
+          </div>
+          <canvas id="revenueChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>MRR i trend miesięczny</h2>
+            <button class="help-btn" type="button" data-help-key="mrr">?</button>
+          </div>
+          <canvas id="mrrChart"></canvas>
+        </article>
+      </div>
+
+      <div class="charts-grid charts-grid-wide">
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>Sprzedaż wg produktu (TOP 8)</h2>
+            <button class="help-btn" type="button" data-help-key="products">?</button>
+          </div>
+          <canvas id="productsChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>Udział produktów (TOP 6)</h2>
+            <button class="help-btn" type="button" data-help-key="productMix">?</button>
+          </div>
+          <canvas id="productMixChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>Nowi vs powracający klienci</h2>
+            <button class="help-btn" type="button" data-help-key="cohort">?</button>
+          </div>
+          <canvas id="cohortChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>Trend churn</h2>
+            <button class="help-btn" type="button" data-help-key="churn">?</button>
+          </div>
+          <canvas id="churnChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>Retencja m/m</h2>
+            <button class="help-btn" type="button" data-help-key="retention">?</button>
+          </div>
+          <canvas id="retentionChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>Aktywni klienci w czasie</h2>
+            <button class="help-btn" type="button" data-help-key="activeClients">?</button>
+          </div>
+          <canvas id="activeClientsChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>LTV segmenty klientów</h2>
+            <button class="help-btn" type="button" data-help-key="ltv">?</button>
+          </div>
+          <canvas id="ltvSegmentsChart"></canvas>
+        </article>
+        <article class="card chart-card">
+          <div class="chart-head">
+            <h2>ARPU i średni koszyk</h2>
+            <button class="help-btn" type="button" data-help-key="unitEconomics">?</button>
+          </div>
+          <canvas id="unitEconomicsChart"></canvas>
+        </article>
+      </div>
+
+      <article class="card table-card">
+        <div class="table-header">
+          <h2>Klienci do kontaktu</h2>
+          <p class="muted">Kupowali karnet w poprzednim miesiącu, ale nie kupili go w ostatnim miesiącu.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Klient</th>
+                <th>Ostatni zakup</th>
+                <th>Dni bez zakupu</th>
+                <th>LTV</th>
+                <th>Rekomendacja</th>
+              </tr>
+            </thead>
+            <tbody id="contactTableBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card table-card">
+        <div class="table-header">
+          <h2>Wszyscy klienci wg liczby zakupów</h2>
+          <p class="muted">Posortowane malejąco po liczbie zakupów.</p>
+        </div>
+        <div class="table-wrap table-wrap-wide">
+          <table class="no-stack">
+            <thead>
+              <tr id="allClientsHeadRow">
+                <th>Imię i nazwisko</th>
+                <th>Ilość zakupów</th>
+              </tr>
+            </thead>
+            <tbody id="allClientsTableBody"></tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <div id="helpPopover" class="help-popover" popover>
+    <div class="help-popover-head">
+      <h3 id="helpTitle">Pomoc</h3>
+      <button id="helpCloseBtn" class="help-close" type="button" aria-label="Zamknij">x</button>
+    </div>
+    <p id="helpText" class="help-text"></p>
+  </div>
+</body>
+</html>
