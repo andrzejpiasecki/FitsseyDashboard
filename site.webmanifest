@@ -1,12 +1,20 @@
 {
-  "short_name": "",
-  "name": "",
-  "icons": [{
-    "src": "icon.png",
-    "type": "image/png",
-    "sizes": "192x192"
-  }],
+  "short_name": "FitsseyDashboard",
+  "name": "FitsseyDashboard",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
   "start_url": "/?utm_source=homescreen",
+  "display": "standalone",
   "background_color": "#fafafa",
   "theme_color": "#fafafa"
 }

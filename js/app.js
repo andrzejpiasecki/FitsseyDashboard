@@ -137,6 +137,7 @@ function initAuth() {
     apiKeyInput.value = "";
     destroyAllCharts();
     document.getElementById("dashboard").classList.add("hidden");
+    setAuthCardVisible(true);
     setStatus("Wylogowano. Wprowadź nowy API Key, aby pobrać dane.", "info");
   });
 }
@@ -512,6 +513,7 @@ function buildAnalytics(records) {
 function renderDashboard(analytics) {
   document.getElementById("dashboard").classList.remove("hidden");
   document.getElementById("status").classList.add("hidden");
+  setAuthCardVisible(false);
 
   renderRevenueChart(analytics.months, analytics.revenueByMonth);
   renderMrrChart(analytics.months, analytics.mrrByMonth);
@@ -525,6 +527,12 @@ function renderDashboard(analytics) {
   renderLtvSegmentsChart(analytics.ltvSegments);
   renderContactsTable(analytics.contacts);
   renderAllClientsTable(analytics.clientsSummary, analytics.months);
+}
+
+function setAuthCardVisible(isVisible) {
+  const authCard = document.getElementById("authCard");
+  if (!authCard) return;
+  authCard.classList.toggle("hidden", !isVisible);
 }
 
 function renderRevenueChart(months, series) {

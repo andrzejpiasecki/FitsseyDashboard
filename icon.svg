@@ -1,1 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" viewBox="0 0 192 192"><path fill="#e08524" d="M75.3 73.4H18.4l45.3 34.3L48.3 163l46.1-32.3 48.2 34.6-16.9-58.3 44.9-33.6H115l-20.5-55-19.2 55z"/><path d="m96.7 18.8 18.2 8.2 16.5 44.3h-15.1L96.7 18.8zm-47 146 18.7 9.9 42.6-29.9-16.5-11.4-44.8 31.4zm79.1-56.8 17.4 9.4 18.6 60.1-19.7-11.3-16.3-58.2z"/><path d="m173.1 74.3 17.8 9.2-44.7 34-17.4-9.4 44.3-33.8z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f7a63"/>
+      <stop offset="1" stop-color="#145042"/>
+    </linearGradient>
+    <linearGradient id="chart" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#f4a261"/>
+      <stop offset="1" stop-color="#ffd166"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="192" height="192" rx="36" fill="url(#bg)"/>
+
+  <rect x="28" y="36" width="136" height="120" rx="14" fill="#ffffff" opacity="0.96"/>
+  <rect x="40" y="48" width="112" height="16" rx="8" fill="#dcefe9"/>
+  <circle cx="50" cy="56" r="3" fill="#1f7a63"/>
+  <circle cx="60" cy="56" r="3" fill="#2a9d8f"/>
+  <circle cx="70" cy="56" r="3" fill="#f4a261"/>
+
+  <line x1="46" y1="132" x2="146" y2="132" stroke="#d5ddd9" stroke-width="4" stroke-linecap="round"/>
+  <line x1="46" y1="132" x2="46" y2="74" stroke="#d5ddd9" stroke-width="4" stroke-linecap="round"/>
+
+  <rect x="56" y="106" width="14" height="26" rx="5" fill="#2a9d8f"/>
+  <rect x="78" y="94" width="14" height="38" rx="5" fill="#2fba9d"/>
+  <rect x="100" y="82" width="14" height="50" rx="5" fill="#34caa9"/>
+  <rect x="122" y="70" width="14" height="62" rx="5" fill="url(#chart)"/>
+
+  <path d="M55 93 76 84 98 88 120 72 138 76" fill="none" stroke="#f4a261" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="138" cy="76" r="5" fill="#f4a261"/>
+</svg>
