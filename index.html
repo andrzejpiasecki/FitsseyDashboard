@@ -14,6 +14,9 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
+  <div id="loadingIndicator" class="loading-indicator hidden" aria-hidden="true">
+    <span class="loading-indicator-bar"></span>
+  </div>
   <div class="bg-shape bg-shape-a" aria-hidden="true"></div>
   <div class="bg-shape bg-shape-b" aria-hidden="true"></div>
 
@@ -55,6 +58,32 @@
     <section id="status" class="status hidden" role="status" aria-live="polite"></section>
 
     <section id="dashboard" class="hidden">
+      <article class="card revenue-summary" id="revenueSummary">
+        <p class="revenue-summary-title">Przychód miesiąc do miesiąca</p>
+        <div class="revenue-summary-grid">
+          <div class="revenue-summary-item">
+            <p class="revenue-summary-label">Aktualny miesiąc</p>
+            <p class="revenue-summary-value" id="currentMonthRevenueValue">-</p>
+            <p class="revenue-summary-sub" id="currentMonthRevenueLabel">-</p>
+          </div>
+          <div class="revenue-summary-item">
+            <p class="revenue-summary-label">Poprzedni miesiąc (cały)</p>
+            <p class="revenue-summary-value" id="previousMonthRevenueValue">-</p>
+            <p class="revenue-summary-sub" id="previousMonthRevenueLabel">-</p>
+          </div>
+          <div class="revenue-summary-item">
+            <p class="revenue-summary-label">Poprzedni do tego dnia</p>
+            <p class="revenue-summary-value" id="previousComparableRevenueValue">-</p>
+            <p class="revenue-summary-sub" id="previousComparableRevenueLabel">-</p>
+          </div>
+          <div class="revenue-summary-item">
+            <p class="revenue-summary-label">Zmiana m/m</p>
+            <p class="revenue-summary-trend" id="revenueMoMValue">-</p>
+            <p class="revenue-summary-sub" id="revenueMoMLabel">vs poprzedni miesiąc</p>
+          </div>
+        </div>
+      </article>
+
       <div class="charts-grid charts-grid-wide">
         <article class="card chart-card span-2">
           <div class="chart-head">
@@ -62,6 +91,13 @@
             <button class="help-btn" type="button" data-help-key="revenue">?</button>
           </div>
           <canvas id="revenueChart"></canvas>
+        </article>
+        <article class="card chart-card span-2">
+          <div class="chart-head">
+            <h2>Przychód dzienny</h2>
+            <button class="help-btn" type="button" data-help-key="dailyRevenue">?</button>
+          </div>
+          <canvas id="dailyRevenueChart"></canvas>
         </article>
         <article class="card chart-card">
           <div class="chart-head">

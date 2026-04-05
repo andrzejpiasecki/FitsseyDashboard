@@ -1,5 +1,7 @@
 const state = {
   auth: null,
+  isLoading: false,
+  lastAutoRefreshAt: 0,
   charts: {
     revenue: null,
     mrr: null,
@@ -11,6 +13,44 @@ const state = {
     retention: null,
     activeClients: null,
     ltvSegments: null,
+    dailyRevenue: null,
+  },
+};
+
+const barValueLabelsPlugin = {
+  id: "barValueLabels",
+  afterDatasetsDraw(chart, _args, pluginOptions) {
+    if (!pluginOptions?.enabled || chart.config.type !== "bar") return;
+
+    const isHorizontal = chart.options?.indexAxis === "y";
+    if (isHorizontal) return;
+
+    const { ctx } = chart;
+    const formatter =
+      typeof pluginOptions.formatter === "function"
+        ? pluginOptions.formatter
+        : (value) => String(Math.round(Number(value) || 0));
+
+    ctx.save();
+    ctx.font = pluginOptions.font || "700 11px Manrope";
+    ctx.fillStyle = pluginOptions.color || "#344054";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+
+    for (let datasetIndex = 0; datasetIndex < chart.data.datasets.length; datasetIndex += 1) {
+      const meta = chart.getDatasetMeta(datasetIndex);
+      if (meta.hidden) continue;
+      const dataset = chart.data.datasets[datasetIndex];
+      const data = dataset.data || [];
+      meta.data.forEach((bar, index) => {
+        const rawValue = Number(data[index]);
+        if (!Number.isFinite(rawValue)) return;
+        const label = formatter(rawValue, datasetIndex, index, dataset);
+        ctx.fillText(label, bar.x, bar.y - 6);
+      });
+    }
+
+    ctx.restore();
   },
 };
 
@@ -63,11 +103,17 @@ const chartHelpContent = {
     title: "LTV segmenty klientów",
     text: "LTV to łączna wartość zakupów klienta w całym okresie. Wykres dzieli klientów na segmenty wartości i pomaga skupić działania CRM na najbardziej rentownych grupach.",
   },
+  dailyRevenue: {
+    title: "Przychód dzienny",
+    text: "Pokazuje przychód od 1. dnia aktualnego miesiąca oraz porównanie do odpowiadających dni z poprzedniego miesiąca na jednym wykresie.",
+  },
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+  Chart.register(barValueLabelsPlugin);
   initHelpPopover();
   initAuth();
+  initAutoRefreshOnFocus();
 });
 
 function initAuth() {
@@ -147,7 +193,10 @@ async function loadDefaultData() {
     setStatus("Brak autoryzacji API. Uzupełnij dane logowania powyżej.", "error");
     return;
   }
+  if (state.isLoading) return;
 
+  state.isLoading = true;
+  setLoading(true);
   try {
     setStatus("Ładowanie sprzedaży z API Fitssey...", "info");
     const apiRecords = await fetchSalesRecordsFromApi(state.auth);
@@ -159,7 +208,28 @@ async function loadDefaultData() {
     return;
   } catch (error) {
     setStatus(`Nie udało się pobrać danych z API Fitssey. ${error.message || "Sprawdź klucz API i studio UUID."}`, "error");
+  } finally {
+    state.isLoading = false;
+    setLoading(false);
   }
+}
+
+function initAutoRefreshOnFocus() {
+  const triggerRefresh = () => {
+    if (!state.auth?.secret || !state.auth?.studioUuid) return;
+
+    const now = Date.now();
+    if (now - state.lastAutoRefreshAt < 8000) return;
+    state.lastAutoRefreshAt = now;
+    loadDefaultData();
+  };
+
+  window.addEventListener("focus", triggerRefresh);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      triggerRefresh();
+    }
+  });
 }
 
 function getStoredAuth() {
@@ -441,6 +511,8 @@ function buildAnalytics(records) {
   const passSales = records.filter((row) => row.isPass).length;
 
   const latestRevenue = revenueByMonth[latestMonth] || 0;
+  const previousRevenue = previousMonth ? revenueByMonth[previousMonth] || 0 : 0;
+  const comparableRevenue = buildComparableMonthToDateRevenue(records);
   const latestMrr = mrrByMonth[latestMonth] || 0;
   const latestActive = uniqueClientsByMonth[latestMonth]?.size || 0;
   const activeClientsByMonth = createMonthlyObject(months, 0);
@@ -473,6 +545,7 @@ function buildAnalytics(records) {
   contacts.sort((a, b) => b.daysSince - a.daysSince || b.lifetimeRevenue - a.lifetimeRevenue);
 
   const clientsSummary = buildClientsSummary(records, months);
+  const dailyRevenue = buildDailyRevenueSeries(records);
 
   const ltvSegments = { "0-500": 0, "500-1000": 0, "1000-2000": 0, "2000+": 0 };
   for (const client of Object.values(clientStats)) {
@@ -489,6 +562,19 @@ function buildAnalytics(records) {
     totalSales,
     latestActive,
     latestRevenue,
+    previousRevenue,
+    revenueMoMChange: comparableRevenue.revenueMoMChange,
+    currentPeriodRevenue: comparableRevenue.currentPeriodRevenue,
+    previousPeriodRevenue: comparableRevenue.previousPeriodRevenue,
+    previousFullMonthRevenue: comparableRevenue.previousFullMonthRevenue,
+    currentPeriodStart: comparableRevenue.currentPeriodStart,
+    currentPeriodEnd: comparableRevenue.currentPeriodEnd,
+    previousPeriodStart: comparableRevenue.previousPeriodStart,
+    previousPeriodEnd: comparableRevenue.previousPeriodEnd,
+    previousFullMonthStart: comparableRevenue.previousFullMonthStart,
+    previousFullMonthEnd: comparableRevenue.previousFullMonthEnd,
+    latestMonth,
+    previousMonth,
     latestChurn,
     latestMrr,
     latestArpu,
@@ -505,6 +591,9 @@ function buildAnalytics(records) {
     retentionByMonth,
     activeClientsByMonth,
     ltvSegments,
+    dailyRevenueLabels: dailyRevenue.labels,
+    dailyRevenueValues: dailyRevenue.values,
+    dailyRevenuePreviousValues: dailyRevenue.previousValues,
     contacts,
     clientsSummary,
   };
@@ -514,6 +603,7 @@ function renderDashboard(analytics) {
   document.getElementById("dashboard").classList.remove("hidden");
   document.getElementById("status").classList.add("hidden");
   setAuthCardVisible(false);
+  renderRevenueSummary(analytics);
 
   renderRevenueChart(analytics.months, analytics.revenueByMonth);
   renderMrrChart(analytics.months, analytics.mrrByMonth);
@@ -525,8 +615,107 @@ function renderDashboard(analytics) {
   renderRetentionChart(analytics.months, analytics.retentionByMonth);
   renderActiveClientsChart(analytics.months, analytics.activeClientsByMonth);
   renderLtvSegmentsChart(analytics.ltvSegments);
+  renderDailyRevenueChart(
+    analytics.dailyRevenueLabels,
+    analytics.dailyRevenueValues,
+    analytics.dailyRevenuePreviousValues
+  );
   renderContactsTable(analytics.contacts);
   renderAllClientsTable(analytics.clientsSummary, analytics.months);
+}
+
+function renderRevenueSummary(analytics) {
+  const currentValue = document.getElementById("currentMonthRevenueValue");
+  const previousValue = document.getElementById("previousMonthRevenueValue");
+  const previousComparableValue = document.getElementById("previousComparableRevenueValue");
+  const currentLabel = document.getElementById("currentMonthRevenueLabel");
+  const previousLabel = document.getElementById("previousMonthRevenueLabel");
+  const previousComparableLabel = document.getElementById("previousComparableRevenueLabel");
+  const changeValue = document.getElementById("revenueMoMValue");
+  const changeLabel = document.getElementById("revenueMoMLabel");
+
+  currentValue.textContent = formatCurrency(analytics.currentPeriodRevenue);
+  previousValue.textContent = formatCurrency(analytics.previousFullMonthRevenue);
+  previousComparableValue.textContent = formatCurrency(analytics.previousPeriodRevenue);
+  currentLabel.textContent = `${formatDateShort(analytics.currentPeriodStart)} - ${formatDateShort(analytics.currentPeriodEnd)}`;
+  previousLabel.textContent = `${formatDateShort(analytics.previousFullMonthStart)} - ${formatDateShort(analytics.previousFullMonthEnd)}`;
+  previousComparableLabel.textContent = `${formatDateShort(analytics.previousPeriodStart)} - ${formatDateShort(analytics.previousPeriodEnd)}`;
+
+  changeValue.classList.remove("revenue-summary-trend-up", "revenue-summary-trend-down", "revenue-summary-trend-flat");
+  if (analytics.revenueMoMChange == null) {
+    changeValue.textContent = "—";
+    changeValue.classList.add("revenue-summary-trend-flat");
+    changeLabel.textContent = "Brak porównania m/m";
+    return;
+  }
+
+  const isUp = analytics.revenueMoMChange > 0;
+  const isDown = analytics.revenueMoMChange < 0;
+  const arrow = isUp ? "▲" : isDown ? "▼" : "→";
+  changeValue.textContent = `${arrow} ${Math.abs(analytics.revenueMoMChange).toFixed(1)}%`;
+  changeValue.classList.add(
+    isUp ? "revenue-summary-trend-up" : isDown ? "revenue-summary-trend-down" : "revenue-summary-trend-flat"
+  );
+  changeLabel.textContent = "vs poprzedni miesiąc";
+}
+
+function buildComparableMonthToDateRevenue(records) {
+  const now = new Date();
+  const currentPeriodStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  const currentPeriodEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  const previousMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousPeriodStart = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth(), 1, 0, 0, 0, 0);
+  const previousMonthLastDay = new Date(previousMonthDate.getFullYear(), previousMonthDate.getMonth() + 1, 0).getDate();
+  const comparableDay = Math.min(now.getDate(), previousMonthLastDay);
+  const previousPeriodEnd = new Date(
+    previousMonthDate.getFullYear(),
+    previousMonthDate.getMonth(),
+    comparableDay,
+    23,
+    59,
+    59,
+    999
+  );
+  const previousFullMonthEnd = new Date(
+    previousMonthDate.getFullYear(),
+    previousMonthDate.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999
+  );
+
+  const currentPeriodRevenue = sumRevenueInRange(records, currentPeriodStart, currentPeriodEnd);
+  const previousPeriodRevenue = sumRevenueInRange(records, previousPeriodStart, previousPeriodEnd);
+  const previousFullMonthRevenue = sumRevenueInRange(records, previousPeriodStart, previousFullMonthEnd);
+  const revenueMoMChange =
+    previousPeriodRevenue > 0 ? ((currentPeriodRevenue - previousPeriodRevenue) / previousPeriodRevenue) * 100 : null;
+
+  return {
+    currentPeriodRevenue,
+    previousPeriodRevenue,
+    previousFullMonthRevenue,
+    revenueMoMChange,
+    currentPeriodStart,
+    currentPeriodEnd,
+    previousPeriodStart,
+    previousPeriodEnd,
+    previousFullMonthStart: previousPeriodStart,
+    previousFullMonthEnd,
+  };
+}
+
+function sumRevenueInRange(records, startDate, endDate) {
+  let total = 0;
+  for (const row of records) {
+    const time = row.date.getTime();
+    if (time >= startDate.getTime() && time <= endDate.getTime()) {
+      total += row.amount;
+    }
+  }
+  return total;
 }
 
 function setAuthCardVisible(isVisible) {
@@ -739,6 +928,30 @@ function renderActiveClientsChart(months, activeClientsByMonth) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: "nearest",
+        intersect: false,
+        axis: "x",
+      },
+      hover: {
+        mode: "nearest",
+        intersect: false,
+        axis: "x",
+      },
+      onHover(event, _active, chart) {
+        const activeElements = chart.getElementsAtEventForMode(
+          event,
+          "index",
+          { axis: "x", intersect: false },
+          false
+        );
+        chart.setActiveElements(activeElements);
+        chart.tooltip.setActiveElements(activeElements, {
+          x: event.x,
+          y: event.y,
+        });
+        chart.update("none");
+      },
       scales: {
         y: {
           beginAtZero: true,
@@ -770,6 +983,59 @@ function renderLtvSegmentsChart(segments) {
       maintainAspectRatio: false,
       scales: { y: { beginAtZero: true } },
       plugins: { legend: { display: false } },
+    },
+  });
+}
+
+function renderDailyRevenueChart(labels, values, previousValues) {
+  state.charts.dailyRevenue = replaceChart(state.charts.dailyRevenue, "dailyRevenueChart", {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Sprzedaż dnia",
+          data: values,
+          backgroundColor: "rgba(139, 92, 246, 0.7)",
+          borderRadius: 4,
+        },
+        {
+          label: "Ten sam dzień poprzedniego miesiąca",
+          data: previousValues,
+          backgroundColor: "rgba(14, 165, 233, 0.6)",
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback(value) {
+              return formatCurrency(value);
+            },
+          },
+        },
+        x: {
+          ticks: {
+            maxTicksLimit: 10,
+          },
+        },
+      },
+      plugins: {
+        tooltip: {
+          mode: "index",
+          intersect: false,
+          callbacks: {
+            label(context) {
+              return `${context.dataset.label}: ${formatCurrency(context.raw)}`;
+            },
+          },
+        },
+      },
     },
   });
 }
@@ -902,6 +1168,55 @@ function buildClientsSummary(records, months) {
   );
 }
 
+function buildDailyRevenueSeries(records) {
+  if (!records.length) {
+    return { labels: [], values: [], previousValues: [] };
+  }
+
+  const byDay = new Map();
+  for (const row of records) {
+    const dayKey = toDayKey(row.date);
+    byDay.set(dayKey, (byDay.get(dayKey) || 0) + row.amount);
+  }
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  const previousMonthDate = new Date(currentYear, currentMonth - 1, 1);
+  const previousYear = previousMonthDate.getFullYear();
+  const previousMonth = previousMonthDate.getMonth();
+
+  const currentMonthLastDay = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const previousMonthLastDay = new Date(previousYear, previousMonth + 1, 0).getDate();
+
+  const labels = [];
+  const values = [];
+  const previousValues = [];
+  for (let day = 1; day <= 31; day += 1) {
+    labels.push(String(day));
+
+    if (day <= currentMonthLastDay) {
+      const currentKey = toDayKeyFromParts(currentYear, currentMonth, day);
+      values.push(byDay.get(currentKey) || 0);
+    } else {
+      values.push(0);
+    }
+
+    if (day <= previousMonthLastDay) {
+      const previousKey = toDayKeyFromParts(previousYear, previousMonth, day);
+      previousValues.push(byDay.get(previousKey) || 0);
+    } else {
+      previousValues.push(0);
+    }
+  }
+
+  return { labels, values, previousValues };
+}
+
+function toDayKeyFromParts(year, zeroBasedMonth, day) {
+  return `${year}-${String(zeroBasedMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 function summarizeProducts(products) {
   if (!products.length) return "-";
   const counter = new Map();
@@ -920,6 +1235,10 @@ function formatMonthKey(monthKey) {
 
 function toMonthKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function toDayKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function safeText(value) {
@@ -959,6 +1278,12 @@ function chartOptionsCurrency() {
       },
     },
     plugins: {
+      barValueLabels: {
+        enabled: true,
+        formatter(value) {
+          return formatCurrencyShort(value);
+        },
+      },
       tooltip: {
         callbacks: {
           label(context) {
@@ -1005,6 +1330,23 @@ function formatCurrency(value) {
   }).format(value || 0);
 }
 
+function formatCurrencyShort(value) {
+  return new Intl.NumberFormat("pl-PL", {
+    style: "currency",
+    currency: "PLN",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value || 0);
+}
+
+function formatDateShort(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) return "-";
+  return new Intl.DateTimeFormat("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(value);
+}
+
 function trimText(value, max) {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 1)}...`;
@@ -1021,6 +1363,12 @@ function setStatus(message, kind) {
   status.textContent = message;
   status.className = "status";
   status.classList.add(kind === "error" ? "status-error" : "status-info");
+}
+
+function setLoading(isLoading) {
+  const indicator = document.getElementById("loadingIndicator");
+  if (!indicator) return;
+  indicator.classList.toggle("hidden", !isLoading);
 }
 
 function escapeHtml(value) {
