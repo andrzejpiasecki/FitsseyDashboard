@@ -169,8 +169,28 @@
 
       <article class="card table-card">
         <div class="table-header">
+          <h2>Ostatnie 50 zakupów</h2>
+          <p class="muted">Najświeższe transakcje, posortowane malejąco po dacie zakupu.</p>
+        </div>
+        <div class="table-wrap table-wrap-wide">
+          <table class="no-stack">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Klient</th>
+                <th>Produkt</th>
+                <th>Kwota</th>
+              </tr>
+            </thead>
+            <tbody id="recentSalesTableBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card table-card">
+        <div class="table-header">
           <h2>Klienci do kontaktu</h2>
-          <p class="muted">Kupowali karnet w poprzednim miesiącu, ale nie kupili go w ostatnim miesiącu.</p>
+          <p class="muted">Heurystyka ryzyka odnowienia: brak nowego karnetu, czas od ostatniego karnetu, przewidywany cykl zakupu i wartość klienta (oraz aktywne wejścia, jeśli API je zwraca).</p>
         </div>
         <div class="table-wrap">
           <table>
@@ -179,11 +199,32 @@
                 <th>Klient</th>
                 <th>Ostatni zakup</th>
                 <th>Dni bez zakupu</th>
+                <th>Aktywne wejścia</th>
                 <th>LTV</th>
                 <th>Rekomendacja</th>
               </tr>
             </thead>
             <tbody id="contactTableBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card table-card">
+        <div class="table-header">
+          <h2>Kończy się karnet (1 aktywne wejście)</h2>
+          <p class="muted">Klienci, u których zostało dokładnie 1 aktywne wejście (lub szacunek, gdy API nie zwraca aktywnych wejść).</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Klient</th>
+                <th>Ostatni zakup karnetu</th>
+                <th>Aktywne wejścia</th>
+                <th>LTV</th>
+              </tr>
+            </thead>
+            <tbody id="expiringPassTableBody"></tbody>
           </table>
         </div>
       </article>

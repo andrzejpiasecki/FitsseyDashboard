@@ -2,6 +2,14 @@ const state = {
   auth: null,
   isLoading: false,
   lastAutoRefreshAt: 0,
+  allClientsSort: {
+    key: "totalAmount",
+    dir: "desc",
+  },
+  allClientsData: {
+    clientsSummary: [],
+    months: [],
+  },
   charts: {
     revenue: null,
     mrr: null,
@@ -60,6 +68,9 @@ const FITSSEY_CONFIG = {
   baseUrlTemplate: "https://app.fitssey.com/{uuid}/api/v4/public",
   defaultStartDate: "2025-10-01",
   defaultStudioUuid: "Reformapilates",
+  passActiveDays: 30,
+  contactGraceDays: 14,
+  contactMaxDaysSinceLastPass: 90,
 };
 
 const chartHelpContent = {
@@ -362,8 +373,31 @@ function mapApiSalesRowToRecord(row) {
     clientKey: clientName.toLowerCase().trim(),
     product,
     amount,
+    remainingEntries: extractRemainingEntries(row),
     isPass: /karnet|pass|pakiet/i.test(product),
   };
+}
+
+function extractRemainingEntries(row) {
+  const candidates = [
+    row.remainingEntries,
+    row.availableEntries,
+    row.activeEntries,
+    row.entriesLeft,
+    row.leftEntries,
+    row?.item?.remainingEntries,
+    row?.item?.availableEntries,
+    row?.pass?.remainingEntries,
+    row?.pass?.availableEntries,
+    row?.passInstance?.remainingEntries,
+    row?.passInstance?.availableEntries,
+  ];
+
+  for (const value of candidates) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
 }
 
 function initHelpPopover() {
@@ -462,6 +496,10 @@ function buildAnalytics(records) {
         name: row.clientName,
         lifetimeRevenue: 0,
         lastPurchaseDate: row.date,
+        lastPassPurchaseDate: null,
+        lastKnownRemainingEntries: null,
+        passPurchaseDates: [],
+        purchaseMonths: new Set(),
         passMonths: new Set(),
       };
     }
@@ -472,7 +510,17 @@ function buildAnalytics(records) {
       stat.lastPurchaseDate = row.date;
       stat.name = row.clientName;
     }
-    if (row.isPass) stat.passMonths.add(row.month);
+    stat.purchaseMonths.add(row.month);
+    if (row.isPass) {
+      stat.passMonths.add(row.month);
+      stat.passPurchaseDates.push(row.date);
+      if (!stat.lastPassPurchaseDate || row.date > stat.lastPassPurchaseDate) {
+        stat.lastPassPurchaseDate = row.date;
+      }
+      if (Number.isFinite(row.remainingEntries)) {
+        stat.lastKnownRemainingEntries = row.remainingEntries;
+      }
+    }
   }
 
   for (const month of months) {
@@ -525,27 +573,98 @@ function buildAnalytics(records) {
   const passShare = totalSales ? (passSales / totalSales) * 100 : 0;
 
   const contacts = [];
-  if (previousMonth) {
-    for (const client of Object.values(clientStats)) {
-      const hadPassPrev = client.passMonths.has(previousMonth);
-      const hasPassLatest = client.passMonths.has(latestMonth);
-      if (!hadPassPrev || hasPassLatest) continue;
+  const expiringPasses = [];
+  const hasExplicitEntriesData = Object.values(clientStats).some(
+    (client) => Number.isFinite(client.lastKnownRemainingEntries)
+  );
+  for (const client of Object.values(clientStats)) {
+    if (client.lastPassPurchaseDate) {
+      const daysSinceLastPass = Math.max(0, Math.floor((Date.now() - client.lastPassPurchaseDate.getTime()) / 86400000));
+      const expectedCycleDays = estimatePassCycleDays(client.passPurchaseDates);
+      const hasPassLatest = latestMonth ? client.passMonths.has(latestMonth) : false;
 
-      const daysSince = Math.max(0, Math.floor((Date.now() - client.lastPurchaseDate.getTime()) / 86400000));
+      if (hasExplicitEntriesData) {
+        if (Number.isFinite(client.lastKnownRemainingEntries) && client.lastKnownRemainingEntries === 1) {
+          expiringPasses.push({
+            name: client.name,
+            lastPassPurchaseDate: client.lastPassPurchaseDate,
+            activeEntries: client.lastKnownRemainingEntries,
+            lifetimeRevenue: client.lifetimeRevenue,
+          });
+        }
+      } else {
+        const nearCycleEnd = daysSinceLastPass >= expectedCycleDays - 5 && daysSinceLastPass <= expectedCycleDays + 7;
+        if (nearCycleEnd && !hasPassLatest) {
+          expiringPasses.push({
+            name: client.name,
+            lastPassPurchaseDate: client.lastPassPurchaseDate,
+            activeEntries: 1,
+            lifetimeRevenue: client.lifetimeRevenue,
+          });
+        }
+      }
+    }
+
+    if (!client.lastPassPurchaseDate) continue;
+
+    const hasPassLatest = latestMonth ? client.passMonths.has(latestMonth) : false;
+    if (hasPassLatest) continue;
+
+    const daysSinceLastPass = Math.max(0, Math.floor((Date.now() - client.lastPassPurchaseDate.getTime()) / 86400000));
+    if (daysSinceLastPass < FITSSEY_CONFIG.contactGraceDays) continue;
+    if (daysSinceLastPass > FITSSEY_CONFIG.contactMaxDaysSinceLastPass) continue;
+
+    const hasActiveEntries =
+      Number.isFinite(client.lastKnownRemainingEntries) && client.lastKnownRemainingEntries > 0;
+    if (hasActiveEntries && daysSinceLastPass < 45) continue;
+
+    const expectedCycleDays = estimatePassCycleDays(client.passPurchaseDates);
+    const daysOverdue = daysSinceLastPass - expectedCycleDays;
+    const hadPassPrev = previousMonth ? client.passMonths.has(previousMonth) : false;
+    const hasPurchaseLatest = latestMonth ? client.purchaseMonths.has(latestMonth) : false;
+    const score = calculateContactScore({
+      daysSinceLastPass,
+      daysOverdue,
+      expectedCycleDays,
+      lifetimeRevenue: client.lifetimeRevenue,
+      hadPassPrev,
+      hasPurchaseLatest,
+      passCount: client.passPurchaseDates.length,
+    });
+
+    if (score < 10 && daysOverdue < 5 && !hadPassPrev) continue;
+
       contacts.push({
         name: client.name,
-        lastPurchaseDate: client.lastPurchaseDate,
-        daysSince,
+        lastPurchaseDate: client.lastPassPurchaseDate,
+        daysSince: daysSinceLastPass,
+        daysSinceLastPass,
+        activeEntries: Number.isFinite(client.lastKnownRemainingEntries) ? client.lastKnownRemainingEntries : null,
         lifetimeRevenue: client.lifetimeRevenue,
-        priority: getPriority(daysSince, client.lifetimeRevenue),
+        expectedCycleDays,
+        score,
+        priority: getPriority(score),
       });
-    }
   }
 
-  contacts.sort((a, b) => b.daysSince - a.daysSince || b.lifetimeRevenue - a.lifetimeRevenue);
+  contacts.sort((a, b) => b.score - a.score || b.daysSince - a.daysSince || b.lifetimeRevenue - a.lifetimeRevenue);
+  expiringPasses.sort(
+    (a, b) =>
+      (b.lastPassPurchaseDate?.getTime() || 0) - (a.lastPassPurchaseDate?.getTime() || 0) ||
+      b.lifetimeRevenue - a.lifetimeRevenue
+  );
 
   const clientsSummary = buildClientsSummary(records, months);
   const dailyRevenue = buildDailyRevenueSeries(records);
+  const recentSales = records
+    .slice(-50)
+    .reverse()
+    .map((row) => ({
+      date: row.date,
+      clientName: row.clientName,
+      product: row.product,
+      amount: row.amount,
+    }));
 
   const ltvSegments = { "0-500": 0, "500-1000": 0, "1000-2000": 0, "2000+": 0 };
   for (const client of Object.values(clientStats)) {
@@ -594,7 +713,9 @@ function buildAnalytics(records) {
     dailyRevenueLabels: dailyRevenue.labels,
     dailyRevenueValues: dailyRevenue.values,
     dailyRevenuePreviousValues: dailyRevenue.previousValues,
+    recentSales,
     contacts,
+    expiringPasses,
     clientsSummary,
   };
 }
@@ -620,7 +741,13 @@ function renderDashboard(analytics) {
     analytics.dailyRevenueValues,
     analytics.dailyRevenuePreviousValues
   );
+  renderRecentSalesTable(analytics.recentSales);
   renderContactsTable(analytics.contacts);
+  renderExpiringPassTable(analytics.expiringPasses);
+  state.allClientsData = {
+    clientsSummary: analytics.clientsSummary,
+    months: analytics.months,
+  };
   renderAllClientsTable(analytics.clientsSummary, analytics.months);
 }
 
@@ -1040,6 +1167,37 @@ function renderDailyRevenueChart(labels, values, previousValues) {
   });
 }
 
+function renderRecentSalesTable(sales) {
+  const tbody = document.getElementById("recentSalesTableBody");
+  tbody.innerHTML = "";
+
+  if (!sales.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = "<td data-label=\"Status\" colspan=\"4\">Brak danych o zakupach.</td>";
+    tbody.appendChild(row);
+    return;
+  }
+
+  for (const sale of sales) {
+    const row = document.createElement("tr");
+    const dateLabel = new Intl.DateTimeFormat("pl-PL", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(sale.date);
+
+    row.innerHTML = `
+      <td data-label="Data">${dateLabel}</td>
+      <td data-label="Klient">${escapeHtml(sale.clientName)}</td>
+      <td data-label="Produkt">${escapeHtml(sale.product)}</td>
+      <td data-label="Kwota">${formatCurrency(sale.amount)}</td>
+    `;
+    tbody.appendChild(row);
+  }
+}
+
 function renderContactsTable(contacts) {
   const tbody = document.getElementById("contactTableBody");
   tbody.innerHTML = "";
@@ -1051,7 +1209,7 @@ function renderContactsTable(contacts) {
     return;
   }
 
-  for (const contact of contacts.slice(0, 50)) {
+  for (const contact of contacts.slice(0, 30)) {
     const row = document.createElement("tr");
     const dateLabel = new Intl.DateTimeFormat("pl-PL").format(contact.lastPurchaseDate);
     const badgeClass = `recommend recommend-${priorityClass(contact.priority)}`;
@@ -1059,8 +1217,36 @@ function renderContactsTable(contacts) {
       <td data-label="Klient">${escapeHtml(contact.name)}</td>
       <td data-label="Ostatni zakup">${dateLabel}</td>
       <td data-label="Dni bez zakupu">${contact.daysSince}</td>
+      <td data-label="Aktywne wejścia">${contact.activeEntries == null ? "-" : contact.activeEntries}</td>
       <td data-label="LTV">${formatCurrency(contact.lifetimeRevenue)}</td>
       <td data-label="Rekomendacja"><span class="${badgeClass}">${contact.priority}</span></td>
+    `;
+    tbody.appendChild(row);
+  }
+}
+
+function renderExpiringPassTable(clients) {
+  const tbody = document.getElementById("expiringPassTableBody");
+  tbody.innerHTML = "";
+
+  if (!clients.length) {
+    const row = document.createElement("tr");
+    row.innerHTML = "<td data-label=\"Status\" colspan=\"4\">Brak klientów z 1 aktywnym wejściem.</td>";
+    tbody.appendChild(row);
+    return;
+  }
+
+  for (const client of clients.slice(0, 30)) {
+    const row = document.createElement("tr");
+    const dateLabel = client.lastPassPurchaseDate
+      ? new Intl.DateTimeFormat("pl-PL").format(client.lastPassPurchaseDate)
+      : "-";
+
+    row.innerHTML = `
+      <td data-label="Klient">${escapeHtml(client.name)}</td>
+      <td data-label="Ostatni zakup karnetu">${dateLabel}</td>
+      <td data-label="Aktywne wejścia">${client.activeEntries}</td>
+      <td data-label="LTV">${formatCurrency(client.lifetimeRevenue)}</td>
     `;
     tbody.appendChild(row);
   }
@@ -1073,10 +1259,20 @@ function renderAllClientsTable(clientsSummary, months) {
   headRow.innerHTML = "";
   tbody.innerHTML = "";
 
-  const baseHeaders = ["Imię i nazwisko", "Ilość zakupów", "Suma zakupów"];
-  for (const title of baseHeaders) {
+  const baseHeaders = [
+    { title: "Imię i nazwisko", sortKey: "name" },
+    { title: "Ilość zakupów", sortKey: "purchaseCount" },
+    { title: "Suma zakupów", sortKey: "totalAmount" },
+  ];
+  for (const header of baseHeaders) {
     const th = document.createElement("th");
-    th.textContent = title;
+    th.textContent = renderSortHeaderLabel(header.title, header.sortKey);
+    th.style.cursor = "pointer";
+    th.addEventListener("click", () => {
+      updateAllClientsSort(header.sortKey);
+      const data = state.allClientsData;
+      renderAllClientsTable(data.clientsSummary, data.months);
+    });
     headRow.appendChild(th);
   }
   for (const month of displayedMonths) {
@@ -1092,7 +1288,8 @@ function renderAllClientsTable(clientsSummary, months) {
     return;
   }
 
-  for (const client of clientsSummary) {
+  const sortedClients = sortClientsSummary(clientsSummary);
+  for (const client of sortedClients) {
     const row = document.createElement("tr");
     const cells = [
       `<td data-label="Imię i nazwisko">${escapeHtml(client.name)}</td>`,
@@ -1112,6 +1309,38 @@ function renderAllClientsTable(clientsSummary, months) {
     row.innerHTML = cells.join("");
     tbody.appendChild(row);
   }
+}
+
+function renderSortHeaderLabel(title, sortKey) {
+  if (state.allClientsSort.key !== sortKey) return title;
+  return `${title} ${state.allClientsSort.dir === "asc" ? "↑" : "↓"}`;
+}
+
+function updateAllClientsSort(sortKey) {
+  if (state.allClientsSort.key === sortKey) {
+    state.allClientsSort.dir = state.allClientsSort.dir === "asc" ? "desc" : "asc";
+    return;
+  }
+  state.allClientsSort.key = sortKey;
+  state.allClientsSort.dir = sortKey === "name" ? "asc" : "desc";
+}
+
+function sortClientsSummary(clientsSummary) {
+  const direction = state.allClientsSort.dir === "asc" ? 1 : -1;
+  const sortKey = state.allClientsSort.key;
+  const sorted = [...clientsSummary];
+
+  sorted.sort((a, b) => {
+    if (sortKey === "name") {
+      return a.name.localeCompare(b.name, "pl") * direction;
+    }
+    const aValue = Number(a[sortKey]) || 0;
+    const bValue = Number(b[sortKey]) || 0;
+    if (aValue !== bValue) return (aValue - bValue) * direction;
+    return a.name.localeCompare(b.name, "pl");
+  });
+
+  return sorted;
 }
 
 function buildClientsSummary(records, months) {
@@ -1251,9 +1480,43 @@ function createMonthlyObject(months, initialValue) {
   return obj;
 }
 
-function getPriority(daysSince, lifetimeRevenue) {
-  if (daysSince >= 45 || lifetimeRevenue >= 1200) return "wysoki";
-  if (daysSince >= 28 || lifetimeRevenue >= 600) return "średni";
+function estimatePassCycleDays(passPurchaseDates) {
+  if (!passPurchaseDates || passPurchaseDates.length < 2) return 30;
+  const sorted = [...passPurchaseDates].sort((a, b) => a - b);
+  const intervals = [];
+  for (let i = 1; i < sorted.length; i += 1) {
+    const days = Math.round((sorted[i] - sorted[i - 1]) / 86400000);
+    if (days >= 7 && days <= 60) intervals.push(days);
+  }
+  if (!intervals.length) return 30;
+  intervals.sort((a, b) => a - b);
+  const mid = Math.floor(intervals.length / 2);
+  const median = intervals.length % 2 ? intervals[mid] : Math.round((intervals[mid - 1] + intervals[mid]) / 2);
+  return Math.max(21, Math.min(35, median));
+}
+
+function calculateContactScore({
+  daysSinceLastPass,
+  daysOverdue,
+  expectedCycleDays,
+  lifetimeRevenue,
+  hadPassPrev,
+  hasPurchaseLatest,
+  passCount,
+}) {
+  let score = 0;
+  score += Math.max(0, daysOverdue) * 1.6;
+  score += Math.min(25, lifetimeRevenue / 250);
+  score += Math.min(8, passCount * 1.2);
+  if (hadPassPrev) score += 7;
+  if (!hasPurchaseLatest) score += 5;
+  if (daysSinceLastPass >= expectedCycleDays + 10) score += 8;
+  return score;
+}
+
+function getPriority(score) {
+  if (score >= 35) return "wysoki";
+  if (score >= 18) return "średni";
   return "niski";
 }
 
