@@ -400,6 +400,34 @@ th {
   font-size: 0.84rem;
 }
 
+.sales-row-risk td {
+  background: rgba(180, 35, 24, 0.08);
+}
+
+.sales-row-linked td {
+  background: rgba(21, 128, 61, 0.08);
+}
+
+.sales-mm {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #eef2f7;
+  color: #475467;
+}
+
+.sales-mm-risk {
+  background: #fee4e2;
+  color: #b42318;
+}
+
+.sales-mm-linked {
+  background: #dcfae6;
+  color: #166534;
+}
+
 .recommend {
   display: inline-block;
   border-radius: 999px;

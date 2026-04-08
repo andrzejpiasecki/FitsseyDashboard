@@ -656,23 +656,53 @@ function buildAnalytics(records) {
 
   const clientsSummary = buildClientsSummary(records, months);
   const dailyRevenue = buildDailyRevenueSeries(records);
-  const newClientSales = [];
-  const returningClientSales = [];
-  const sortedRecordsByDate = [...records].sort((a, b) => b.date.getTime() - a.date.getTime());
-  for (const row of sortedRecordsByDate) {
-    const sale = {
-      date: row.date,
-      clientName: row.clientName,
-      product: row.product,
-      amount: row.amount,
-    };
-    if (clientFirstMonth[row.clientKey] === row.month) {
-      if (newClientSales.length < 50) newClientSales.push(sale);
-    } else if (returningClientSales.length < 50) {
-      returningClientSales.push(sale);
-    }
-    if (newClientSales.length >= 50 && returningClientSales.length >= 50) break;
-  }
+  const selectedMonths = [previousMonth, latestMonth].filter(Boolean);
+  const selectedMonthsSet = new Set(selectedMonths);
+  const previousMonthClients = previousMonth ? uniqueClientsByMonth[previousMonth] : new Set();
+  const latestMonthClients = latestMonth ? uniqueClientsByMonth[latestMonth] : new Set();
+
+  const segmentSales = [...records]
+    .filter((row) => selectedMonthsSet.has(row.month))
+    .sort((a, b) => b.date.getTime() - a.date.getTime())
+    .map((row) => {
+      const isNewForMonth = clientFirstMonth[row.clientKey] === row.month;
+      let monthLinkStatus = "-";
+      let monthLinkType = "none";
+
+      if (latestMonth && previousMonth) {
+        if (row.month === latestMonth) {
+          if (previousMonthClients.has(row.clientKey)) {
+            monthLinkStatus = "Kupował też w poprzednim";
+            monthLinkType = "has_previous";
+          } else {
+            monthLinkStatus = "Brak zakupu w poprzednim";
+            monthLinkType = "missing_previous";
+          }
+        } else if (row.month === previousMonth) {
+          if (latestMonthClients.has(row.clientKey)) {
+            monthLinkStatus = "Kupił też w aktualnym";
+            monthLinkType = "has_current";
+          } else {
+            monthLinkStatus = "Brak zakupu w aktualnym";
+            monthLinkType = "missing_current";
+          }
+        }
+      }
+
+      return {
+        date: row.date,
+        month: row.month,
+        clientName: row.clientName,
+        product: row.product,
+        amount: row.amount,
+        monthLinkStatus,
+        monthLinkType,
+        isNewForMonth,
+      };
+    });
+
+  const newClientSales = segmentSales.filter((sale) => sale.isNewForMonth);
+  const returningClientSales = segmentSales.filter((sale) => !sale.isNewForMonth);
 
   const ltvSegments = { "0-500": 0, "500-1000": 0, "1000-2000": 0, "2000+": 0 };
   for (const client of Object.values(clientStats)) {
@@ -1189,13 +1219,28 @@ function renderSalesTable(tableBodyId, sales, emptyMessage) {
 
   if (!sales.length) {
     const row = document.createElement("tr");
-    row.innerHTML = `<td data-label="Status" colspan="4">${emptyMessage}</td>`;
+    row.innerHTML = `<td data-label="Status" colspan="6">${emptyMessage}</td>`;
     tbody.appendChild(row);
     return;
   }
 
   for (const sale of sales) {
     const row = document.createElement("tr");
+    if (sale.monthLinkType === "missing_current") {
+      row.classList.add("sales-row-risk");
+    } else if (sale.monthLinkType === "has_previous" || sale.monthLinkType === "has_current") {
+      row.classList.add("sales-row-linked");
+    }
+
+    const hideMissingPreviousForNewClients =
+      tableBodyId === "newClientSalesTableBody" && sale.monthLinkType === "missing_previous";
+    const mmLabel = hideMissingPreviousForNewClients ? "—" : sale.monthLinkStatus;
+    const mmBadgeClass =
+      sale.monthLinkType === "missing_current"
+        ? "sales-mm sales-mm-risk"
+        : sale.monthLinkType === "has_previous" || sale.monthLinkType === "has_current"
+          ? "sales-mm sales-mm-linked"
+          : "sales-mm";
     const dateLabel = new Intl.DateTimeFormat("pl-PL", {
       year: "numeric",
       month: "2-digit",
@@ -1205,10 +1250,12 @@ function renderSalesTable(tableBodyId, sales, emptyMessage) {
     }).format(sale.date);
 
     row.innerHTML = `
+      <td data-label="Miesiąc">${formatMonthKey(sale.month)}</td>
       <td data-label="Data">${dateLabel}</td>
       <td data-label="Klient">${escapeHtml(sale.clientName)}</td>
       <td data-label="Produkt">${escapeHtml(sale.product)}</td>
       <td data-label="Kwota">${formatCurrency(sale.amount)}</td>
+      <td data-label="Powiązanie m/m"><span class="${mmBadgeClass}">${escapeHtml(mmLabel)}</span></td>
     `;
     tbody.appendChild(row);
   }
