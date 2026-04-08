@@ -656,15 +656,23 @@ function buildAnalytics(records) {
 
   const clientsSummary = buildClientsSummary(records, months);
   const dailyRevenue = buildDailyRevenueSeries(records);
-  const recentSales = records
-    .slice(-50)
-    .reverse()
-    .map((row) => ({
+  const newClientSales = [];
+  const returningClientSales = [];
+  const sortedRecordsByDate = [...records].sort((a, b) => b.date.getTime() - a.date.getTime());
+  for (const row of sortedRecordsByDate) {
+    const sale = {
       date: row.date,
       clientName: row.clientName,
       product: row.product,
       amount: row.amount,
-    }));
+    };
+    if (clientFirstMonth[row.clientKey] === row.month) {
+      if (newClientSales.length < 50) newClientSales.push(sale);
+    } else if (returningClientSales.length < 50) {
+      returningClientSales.push(sale);
+    }
+    if (newClientSales.length >= 50 && returningClientSales.length >= 50) break;
+  }
 
   const ltvSegments = { "0-500": 0, "500-1000": 0, "1000-2000": 0, "2000+": 0 };
   for (const client of Object.values(clientStats)) {
@@ -713,7 +721,8 @@ function buildAnalytics(records) {
     dailyRevenueLabels: dailyRevenue.labels,
     dailyRevenueValues: dailyRevenue.values,
     dailyRevenuePreviousValues: dailyRevenue.previousValues,
-    recentSales,
+    newClientSales,
+    returningClientSales,
     contacts,
     expiringPasses,
     clientsSummary,
@@ -728,20 +737,14 @@ function renderDashboard(analytics) {
 
   renderRevenueChart(analytics.months, analytics.revenueByMonth);
   renderMrrChart(analytics.months, analytics.mrrByMonth);
-  renderUnitEconomicsChart(analytics.months, analytics.arpuByMonth, analytics.avgTicketByMonth);
   renderProductsChart(analytics.productCount);
-  renderProductMixChart(analytics.productCount);
   renderCohortChart(analytics.months, analytics.newClientsByMonth, analytics.returningClientsByMonth);
-  renderChurnChart(analytics.months, analytics.churnByMonth);
-  renderRetentionChart(analytics.months, analytics.retentionByMonth);
-  renderActiveClientsChart(analytics.months, analytics.activeClientsByMonth);
-  renderLtvSegmentsChart(analytics.ltvSegments);
   renderDailyRevenueChart(
     analytics.dailyRevenueLabels,
     analytics.dailyRevenueValues,
     analytics.dailyRevenuePreviousValues
   );
-  renderRecentSalesTable(analytics.recentSales);
+  renderClientSegmentSalesTables(analytics.newClientSales, analytics.returningClientSales);
   renderContactsTable(analytics.contacts);
   renderExpiringPassTable(analytics.expiringPasses);
   state.allClientsData = {
@@ -1167,13 +1170,26 @@ function renderDailyRevenueChart(labels, values, previousValues) {
   });
 }
 
-function renderRecentSalesTable(sales) {
-  const tbody = document.getElementById("recentSalesTableBody");
+function renderClientSegmentSalesTables(newClientSales, returningClientSales) {
+  renderSalesTable(
+    "newClientSalesTableBody",
+    newClientSales,
+    "Brak danych o zakupach nowych klientów."
+  );
+  renderSalesTable(
+    "returningClientSalesTableBody",
+    returningClientSales,
+    "Brak danych o zakupach powracających klientów."
+  );
+}
+
+function renderSalesTable(tableBodyId, sales, emptyMessage) {
+  const tbody = document.getElementById(tableBodyId);
   tbody.innerHTML = "";
 
   if (!sales.length) {
     const row = document.createElement("tr");
-    row.innerHTML = "<td data-label=\"Status\" colspan=\"4\">Brak danych o zakupach.</td>";
+    row.innerHTML = `<td data-label="Status" colspan="4">${emptyMessage}</td>`;
     tbody.appendChild(row);
     return;
   }

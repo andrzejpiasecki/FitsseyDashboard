@@ -84,15 +84,15 @@
         </div>
       </article>
 
-      <div class="charts-grid charts-grid-wide">
-        <article class="card chart-card span-2">
+      <div class="charts-grid">
+        <article class="card chart-card">
           <div class="chart-head">
             <h2>Przychód miesięczny</h2>
             <button class="help-btn" type="button" data-help-key="revenue">?</button>
           </div>
           <canvas id="revenueChart"></canvas>
         </article>
-        <article class="card chart-card span-2">
+        <article class="card chart-card">
           <div class="chart-head">
             <h2>Przychód dzienny</h2>
             <button class="help-btn" type="button" data-help-key="dailyRevenue">?</button>
@@ -108,7 +108,7 @@
         </article>
       </div>
 
-      <div class="charts-grid charts-grid-wide">
+      <div class="charts-grid">
         <article class="card chart-card">
           <div class="chart-head">
             <h2>Sprzedaż wg produktu (TOP 8)</h2>
@@ -118,59 +118,17 @@
         </article>
         <article class="card chart-card">
           <div class="chart-head">
-            <h2>Udział produktów (TOP 6)</h2>
-            <button class="help-btn" type="button" data-help-key="productMix">?</button>
-          </div>
-          <canvas id="productMixChart"></canvas>
-        </article>
-        <article class="card chart-card">
-          <div class="chart-head">
             <h2>Nowi vs powracający klienci</h2>
             <button class="help-btn" type="button" data-help-key="cohort">?</button>
           </div>
           <canvas id="cohortChart"></canvas>
         </article>
-        <article class="card chart-card">
-          <div class="chart-head">
-            <h2>Trend churn</h2>
-            <button class="help-btn" type="button" data-help-key="churn">?</button>
-          </div>
-          <canvas id="churnChart"></canvas>
-        </article>
-        <article class="card chart-card">
-          <div class="chart-head">
-            <h2>Retencja m/m</h2>
-            <button class="help-btn" type="button" data-help-key="retention">?</button>
-          </div>
-          <canvas id="retentionChart"></canvas>
-        </article>
-        <article class="card chart-card">
-          <div class="chart-head">
-            <h2>Aktywni klienci w czasie</h2>
-            <button class="help-btn" type="button" data-help-key="activeClients">?</button>
-          </div>
-          <canvas id="activeClientsChart"></canvas>
-        </article>
-        <article class="card chart-card">
-          <div class="chart-head">
-            <h2>LTV segmenty klientów</h2>
-            <button class="help-btn" type="button" data-help-key="ltv">?</button>
-          </div>
-          <canvas id="ltvSegmentsChart"></canvas>
-        </article>
-        <article class="card chart-card">
-          <div class="chart-head">
-            <h2>ARPU i średni koszyk</h2>
-            <button class="help-btn" type="button" data-help-key="unitEconomics">?</button>
-          </div>
-          <canvas id="unitEconomicsChart"></canvas>
-        </article>
       </div>
 
       <article class="card table-card">
         <div class="table-header">
-          <h2>Ostatnie 50 zakupów</h2>
-          <p class="muted">Najświeższe transakcje, posortowane malejąco po dacie zakupu.</p>
+          <h2>Zakupy nowych klientów</h2>
+          <p class="muted">50 najświeższych transakcji klientów w ich pierwszym miesiącu zakupowym.</p>
         </div>
         <div class="table-wrap table-wrap-wide">
           <table class="no-stack">
@@ -182,7 +140,27 @@
                 <th>Kwota</th>
               </tr>
             </thead>
-            <tbody id="recentSalesTableBody"></tbody>
+            <tbody id="newClientSalesTableBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="card table-card">
+        <div class="table-header">
+          <h2>Zakupy powracających klientów</h2>
+          <p class="muted">50 najświeższych transakcji klientów spoza ich pierwszego miesiąca zakupowego.</p>
+        </div>
+        <div class="table-wrap table-wrap-wide">
+          <table class="no-stack">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Klient</th>
+                <th>Produkt</th>
+                <th>Kwota</th>
+              </tr>
+            </thead>
+            <tbody id="returningClientSalesTableBody"></tbody>
           </table>
         </div>
       </article>
